@@ -3,9 +3,7 @@ from datetime import datetime, timedelta
 import firebase_admin
 from firebase_admin import credentials, db
 import uuid
-import json
-import os
-import tempfile
+import threading
 
 # 📌 ตั้งค่าหน้าเว็บให้เป็นแบบกว้าง และซ่อน UI ขยะของ Streamlit ทั้งหมด
 st.set_page_config(page_title="❖ NYXORAA CLAN RADAR ❖", layout="wide", initial_sidebar_state="expanded")
@@ -124,31 +122,35 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ================= 100% BUG-FREE FIREBASE INITIALIZATION =================
-# แก้ไขคีย์ที่พิมพ์ผิด และใช้ระบบ Tempfile เพื่อให้ Linux อ่านคีย์ได้สมบูรณ์แบบ
-FIREBASE_CRED_DICT = {
-    "type": "service_account",
-    "project_id": "arz-boss-tracker",
-    "private_key_id": "b5c18b7ee40e5e05986ab24c745607ee70bc4393",
-    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC5t/H4iq97/8SO\nmT0Sf6P2Q7/Na9QUa4r7PKppUN+eo/qcaK0zQZ8w9SmFKg82WEiQEbIvnmtRrKEJ\ncvCthK+9RtQjmvZXY7XdXPirBD+U9fNUtN2WzjzJJXuLqhG3V4MmnP80r8fsy8Cc\nTnNXk7PhQPMKWzuQGDtrRw0pAzXMkFhjarlJrj3+lHrXvpH1FqkFvodm/LYJID61\nQ2DQX8mrRSHvgjB4kLlURDvOswpwm2rsvsuX2uYTIVte8jWSeuzzJ9UtEaCGdcNX\nLv94JRuMJVsVes1wLca+x4iDC54AeiqTzO/uL0u3hm1aFUhQ6ODV56wo7WojSQnA\nNkLVZFspAgMBAAECggEARy5D3TVWfgmxLdB40mK+lpAv7s1Ru0PewF1nmTbohnam\nApWyMI+Jsqt8bvAIZZVftmw55btruaGXFTaLHY5aBwsjGsR1f1gVp9LO8kkOD4tW\n6JPrzDWeoZ+uowCbirBNcZrBy9FFqLINUDtXRO01B/QrUsBV62wGNh9E4X+7+nt+\nTCNXLtg3faWd95uGhWNP7eJDUKzX05eZlWybUyECFuVq3hyWRqUkPHlO8+ddDL1D\nDu+qUkCqjJ1mgA1bf+nxraM5iZ6YyeUCtmw9zqr+OT2Vb/MUBQYpkc1U1USa5TTK\noRgwrSSa6B/00ZLOcPAw/GTAMWmpPNwfrqwaazC8+wKBgQD0qJMvaUGNu7Q5gt5v\nLQ5BZFwvXwGtL6pO++Q8+u/9+2hxO41dzT/94f/zCe/D20/vZn0cdPF5TD+2y/Od\nnVAKY8yTRRQ9Hl8HhnEvm4s11NQc2YHlTcQv+Goym8gKcCjcMFb/scoHtSwEHdc2\nmf4D7LlkEhG45yXzwdzBLC5zCwKBgQDCU+omgsjJlCs+l8DkVSn6ZNQJBpuzk4QP\ncL5jlJLJXowu8neww6DkHXiuNFAPIl11JxGp0TCbD0DNMEYt833W3olmBvNmwTET\n/U9oemayBC9f0hXnBw+qrfoVF+jX3YM9+Iqf8o3MKan2gIaIL3K4DT8sZuKDnd8n\nG4PtsJ5LGwKBgD9D9EOXUUdIWZNhnwlaukv4msn5JGLXZ4/jHSMTtMmVoG1fe+/c\nqoaJUXlUgXbBGIuMkh+wsdyu9e7cEJQaYN8+7WDLxS8E0ogMoOoxq67w6STIrglQ\nscHB2BxcIj9ov3go2+Zk4BxcIhSybruE2KXFKi+RaJnK1AqTf/VH6n7/AoGBAKYN\nUJsBzJM7kkxVHlW+VDWLbQgdZnTni8Qp4fZzoY6CxSTkudQJBnWGnXW2a+bSxaty\n7AwBHhiRyxzKsF1ZoGE4HY5aSCi40rgzD2TGmvRo0RZ/DYoxpXiCW50kpim3NguB\nUutkNziLLZner5a1fMC7SQ0nCU3QXDwtrekwr8KbAoGBANwycIWBbXGVaG2l/K2a\njWOrA666TRl2SUfQZ2SD74GhdVTVTJm+qdyG0my/L0NJUCnFK1E/+RH/wxAsGOaA\nCznQHFSOrErOHEZ3f+jZ7qv4AdL/hnUleuJatJTUtdhMzZ/F5z5mduiBzzRKf3Hu\nnJ48TKeCjxsI76smBmutnDLJ\n-----END PRIVATE KEY-----\n",
-    "client_email": "firebase-adminsdk-fbsvc@arz-boss-tracker.iam.gserviceaccount.com",
-    "client_id": "116216819259088173761",
-    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-    "token_uri": "https://oauth2.googleapis.com/token",
-    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40arz-boss-tracker.iam.gserviceaccount.com",
-    "universe_domain": "googleapis.com"
-}
+# 📌 แคชการเชื่อมต่อไว้ ไม่ต้องเชื่อมต่อใหม่ทุกครั้งที่กดปุ่ม และไม่ต้องสร้าง Tempfile ให้หนักเครื่อง
+@st.cache_resource
+def init_firebase():
+    FIREBASE_CRED_DICT = {
+        "type": "service_account",
+        "project_id": "arz-boss-tracker",
+        "private_key_id": "b5c18b7ee40e5e05986ab24c745607ee70bc4393",
+        "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC5t/H4iq97/8SO\nmT0Sf6P2Q7/Na9QUa4r7PKppUN+eo/qcaK0zQZ8w9SmFKg82WEiQEbIvnmtRrKEJ\ncvCthK+9RtQjmvZXY7XdXPirBD+U9fNUtN2WzjzJJXuLqhG3V4MmnP80r8fsy8Cc\nTnNXk7PhQPMKWzuQGDtrRw0pAzXMkFhjarlJrj3+lHrXvpH1FqkFvodm/LYJID61\nQ2DQX8mrRSHvgjB4kLlURDvOswpwm2rsvsuX2uYTIVte8jWSeuzzJ9UtEaCGdcNX\nLv94JRuMJVsVes1wLca+x4iDC54AeiqTzO/uL0u3hm1aFUhQ6ODV56wo7WojSQnA\nNkLVZFspAgMBAAECggEARy5D3TVWfgmxLdB40mK+lpAv7s1Ru0PewF1nmTbohnam\nApWyMI+Jsqt8bvAIZZVftmw55btruaGXFTaLHY5aBwsjGsR1f1gVp9LO8kkOD4tW\n6JPrzDWeoZ+uowCbirBNcZrBy9FFqLINUDtXRO01B/QrUsBV62wGNh9E4X+7+nt+\nTCNXLtg3faWd95uGhWNP7eJDUKzX05eZlWybUyECFuVq3hyWRqUkPHlO8+ddDL1D\nDu+qUkCqjJ1mgA1bf+nxraM5iZ6YyeUCtmw9zqr+OT2Vb/MUBQYpkc1U1USa5TTK\noRgwrSSa6B/00ZLOcPAw/GTAMWmpPNwfrqwaazC8+wKBgQD0qJMvaUGNu7Q5gt5v\nLQ5BZFwvXwGtL6pO++Q8+u/9+2hxO41dzT/94f/zCe/D20/vZn0cdPF5TD+2y/Od\nnVAKY8yTRRQ9Hl8HhnEvm4s11NQc2YHlTcQv+Goym8gKcCjcMFb/scoHtSwEHdc2\nmf4D7LlkEhG45yXzwdzBLC5zCwKBgQDCU+omgsjJlCs+l8DkVSn6ZNQJBpuzk4QP\ncL5jlJLJXowu8neww6DkHXiuNFAPIl11JxGp0TCbD0DNMEYt833W3olmBvNmwTET\n/U9oemayBC9f0hXnBw+qrfoVF+jX3YM9+Iqf8o3MKan2gIaIL3K4DT8sZuKDnd8n\nG4PtsJ5LGwKBgD9D9EOXUUdIWZNhnwlaukv4msn5JGLXZ4/jHSMTtMmVoG1fe+/c\nqoaJUXlUgXbBGIuMkh+wsdyu9e7cEJQaYN8+7WDLxS8E0ogMoOoxq67w6STIrglQ\nscHB2BxcIj9ov3go2+Zk4BxcIhSybruE2KXFKi+RaJnK1AqTf/VH6n7/AoGBAKYN\nUJsBzJM7kkxVHlW+VDWLbQgdZnTni8Qp4fZzoY6CxSTkudQJBnWGnXW2a+bSxaty\n7AwBHhiRyxzKsF1ZoGE4HY5aSCi40rgzD2TGmvRo0RZ/DYoxpXiCW50kpim3NguB\nUutkNziLLZner5a1fMC7SQ0nCU3QXDwtrekwr8KbAoGBANwycIWBbXGVaG2l/K2a\njWOrA666TRl2SUfQZ2SD74GhdVTVTJm+qdyG0my/L0NJUCnFK1E/+RH/wxAsGOaA\nCznQHFSOrErOHEZ3f+jZ7qv4AdL/hnUleuJatJTUtdhMzZ/F5z5mduiBzzRKf3Hu\nnJ48TKeCjxsI76smBmutnDLJ\n-----END PRIVATE KEY-----\n",
+        "client_email": "firebase-adminsdk-fbsvc@arz-boss-tracker.iam.gserviceaccount.com",
+        "client_id": "116216819259088173761",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40arz-boss-tracker.iam.gserviceaccount.com",
+        "universe_domain": "googleapis.com"
+    }
+    
+    if not firebase_admin._apps:
+        try:
+            # 📌 ส่ง dict เข้าไปตรงๆ ได้เลย ไม่ต้องทำ Tempfile
+            cred = credentials.Certificate(FIREBASE_CRED_DICT)
+            firebase_admin.initialize_app(cred, {'databaseURL': DATABASE_URL})
+            return True
+        except Exception as e:
+            st.error(f"❌ CONNECTION ERROR: {e}")
+            return False
+    return True
 
-if not firebase_admin._apps:
-    try:
-        # สร้างไฟล์จำลองเพื่อป้อนข้อมูลให้ Firebase โดยไม่เกิดบัคเครื่องหมาย \n
-        fd, path = tempfile.mkstemp(suffix=".json")
-        with os.fdopen(fd, 'w') as f:
-            json.dump(FIREBASE_CRED_DICT, f)
-        cred = credentials.Certificate(path)
-        firebase_admin.initialize_app(cred, {'databaseURL': DATABASE_URL})
-    except Exception as e:
-        st.error(f"❌ CONNECTION ERROR: {e}")
+init_firebase()
 
 CITIES = {
     "Norad Military Base": "🛡️",
@@ -175,15 +177,24 @@ def push_shared_log(action, server_name, city):
         "id": log_id, "user": st.session_state.user_name, "action": action,
         "city": city, "server": server_name, "time": now_str, "timestamp": datetime.now().timestamp()
     }
+    
+    # 📌 เขียน Log ใหม่ขึ้นไปทันทีแบบรวดเร็ว
     try:
         db.reference(f'shared_action_logs/{log_id}').set(log_data)
-        ref = db.reference('shared_action_logs')
-        all_logs = ref.get()
-        if all_logs and isinstance(all_logs, dict) and len(all_logs) > 150:
-            sorted_items = sorted(all_logs.items(), key=lambda x: x[1].get('timestamp', 0))
-            for i in range(len(sorted_items) - 150):
-                ref.child(sorted_items[i][0]).delete()
     except: pass
+    
+    # 📌 ย้ายงานกวาดขยะ (ลบ Log เก่า) ไปทำเบื้องหลัง (Background Thread) หน้าจอจะได้ไม่ค้าง
+    def prune_logs_background():
+        try:
+            ref = db.reference('shared_action_logs')
+            all_logs = ref.get()
+            if all_logs and isinstance(all_logs, dict) and len(all_logs) > 150:
+                sorted_items = sorted(all_logs.items(), key=lambda x: x[1].get('timestamp', 0))
+                for i in range(len(sorted_items) - 150):
+                    ref.child(sorted_items[i][0]).delete()
+        except: pass
+        
+    threading.Thread(target=prune_logs_background, daemon=True).start()
 
 # ================= INTERFACE VIEW =================
 
@@ -238,7 +249,11 @@ else:
     st.markdown(f"<h2>📍 <span style='color: #64748b;'>SECTOR:</span> <span style='color: #00ff66; text-shadow: 0 0 10px rgba(0,255,102,0.3);'>{st.session_state.current_city.upper()}</span> <span style='font-size: 15px; color: #3b82f6;'>[{st.session_state.current_type.upper()}]</span></h2>", unsafe_allow_html=True)
     
     now = datetime.now()
+    
+    # 📌 BATCH FETCHING: ดึงข้อมูลฐานข้อมูลทั้งหมดรวดเดียวจบ! ไม่ต้องไปดึงวนในลูปอีกต่อไป (เคล็ดลับความลื่น)
     timers_data = db.reference('boss_timers').get() or {}
+    backup_data = db.reference('backup_timers').get() or {}
+    raw_logs = db.reference('shared_action_logs').get() or {}
     
     col_cards, col_logs = st.columns([3, 1])
     
@@ -294,14 +309,16 @@ else:
                 
                 c_undo, col_rst = st.columns(2)
                 with c_undo:
-                    has_backup = db.reference(f'backup_timers/{db_key}').get()
+                    # 📌 อ้างอิงจากข้อมูลที่ดึงมารวดเดียวด้านบนแล้ว ไม่ต้องวิ่งหาในเน็ตทีละช่อง
+                    has_backup = backup_data.get(db_key)
                     if has_backup:
                         if st.button("UNDO", key=f"un_{db_key}", use_container_width=True):
                             db.reference(f'boss_timers/{db_key}').set(has_backup["spawn_time"])
                             db.reference(f'backup_timers/{db_key}').delete()
                             push_shared_log("UNDO", server_name, st.session_state.current_city)
                             st.rerun()
-                    else: st.button("UNDO", key=f"un_dis_{db_key}", disabled=True, use_container_width=True)
+                    else: 
+                        st.button("UNDO", key=f"un_dis_{db_key}", disabled=True, use_container_width=True)
                         
                 with col_rst:
                     if db_key in timers_data:
@@ -310,7 +327,8 @@ else:
                             db.reference(f'boss_timers/{db_key}').delete()
                             push_shared_log("RESET", server_name, st.session_state.current_city)
                             st.rerun()
-                    else: st.button("RESET", key=f"rs_dis_{db_key}", disabled=True, use_container_width=True)
+                    else: 
+                        st.button("RESET", key=f"rs_dis_{db_key}", disabled=True, use_container_width=True)
                 st.markdown("<br>", unsafe_allow_html=True)
 
     with col_logs:
@@ -320,8 +338,8 @@ else:
         </div>
         """, unsafe_allow_html=True)
         
-        raw_logs = db.reference('shared_action_logs').get() or {}
         log_box_content = ""
+        # 📌 อ้างอิงจากข้อมูล log ที่ดึงมารวดเดียวด้านบน ไม่ดึงซ้ำ!
         if raw_logs and isinstance(raw_logs, dict):
             sorted_logs = sorted(raw_logs.values(), key=lambda x: x.get('timestamp', 0), reverse=True)
             for l in sorted_logs:
