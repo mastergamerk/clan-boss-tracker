@@ -7,25 +7,97 @@ import random
 import urllib.request
 import urllib.parse
 import os
-import json
 
-# 📌 ตั้งค่าหน้าเว็บให้เป็นแบบกว้าง (Wide Mode) และธีมดาร์ก
+# 📌 ตั้งค่าหน้าเว็บให้เป็นแบบกว้าง และเปิดโหมดดาร์กตั้งแต่เริ่มโหลด
 st.set_page_config(page_title="CHECK TIMER BOSS PIRIYA", layout="wide", initial_sidebar_state="expanded")
 
 COOLDOWN_SECONDS = 3600
 GOOGLE_SHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxLuBcnupdwj1ippurn9t18kE5pnGucV4Q-CTBr9f7vLApYa_NhwncLTH6FRmJI24u0lw/exec"
 DATABASE_URL = "https://arz-boss-tracker-default-rtdb.firebaseio.com/"
 
-# ================= SYSTEM INITIALIZATION =================
-# สำหรับระบบเว็บ เราจะอ่าน Firebase Key ผ่าน Streamlit Secrets เพื่อความปลอดภัย (ไม่ให้คนอื่นเห็นไฟล์ JSON)
+# ================= CUSTOM UI THEME (CSS) =================
+# ยัดโค้ดตกแต่งสไตล์ Dark Cyberpunk คล้ายเว็บ Nyxora
+st.markdown("""
+<style>
+    /* พื้นหลังและโทนสีหลักของเว็บ */
+    .stApp {
+        background-color: #05070f !important;
+        font-family: 'Segoe UI', monospace !important;
+    }
+    
+    /* สไตล์แถบ Sidebar ด้านซ้าย */
+    section[data-testid="stSidebar"] {
+        background-color: #0b0e14 !important;
+        border-right: 1px solid #1f293d !important;
+    }
+    
+    /* การ์ดเวลากำลังวิ่ง (สีแดงเรืองแสง) */
+    .boss-card-running {
+        background: linear-gradient(135deg, #120a0d 0%, #0c0e17 100%) !important;
+        border: 1px solid #ff4747 !important;
+        border-radius: 8px !important;
+        padding: 20px !important;
+        box-shadow: 0 0 15px rgba(255, 71, 73, 0.15) !important;
+        margin-bottom: 15px !important;
+    }
+    
+    /* การ์ดเวลาบอสเกิด (สีเขียวนีออนกระพริบเรืองแสง) */
+    .boss-card-spawned {
+        background: linear-gradient(135deg, #091a10 0%, #0c0e17 100%) !important;
+        border: 2px solid #39ff14 !important;
+        border-radius: 8px !important;
+        padding: 20px !important;
+        box-shadow: 0 0 25px rgba(57, 255, 20, 0.3) !important;
+        margin-bottom: 15px !important;
+        animation: pulse 1.5s infinite alternate;
+    }
+    
+    /* การ์ดสถานะว่างเปล่า (สีฟ้านีออน) */
+    .boss-card-empty {
+        background-color: #0d111a !important;
+        border: 1px solid #1f293d !important;
+        border-radius: 8px !important;
+        padding: 20px !important;
+        margin-bottom: 15px !important;
+    }
+    
+    /* ปุ่มกดสไตล์สปอร์ตหรู Cyberpunk */
+    .stButton>button {
+        background-color: #0f141c !important;
+        color: #ffffff !important;
+        border: 1px solid #2d3748 !important;
+        border-radius: 4px !important;
+        font-weight: bold !important;
+        transition: all 0.3s ease !important;
+    }
+    .stButton>button:hover {
+        border-color: #39ff14 !important;
+        box-shadow: 0 0 10px rgba(57, 255, 20, 0.5) !important;
+        color: #39ff14 !important;
+    }
+    
+    /* ตู้ข้อความประวัติ Log */
+    div[data-testid="stTextArea"] textarea {
+        background-color: #070a14 !important;
+        border: 1px solid #1f293d !important;
+        color: #a0aec0 !important;
+        font-family: 'Consolas', monospace !important;
+    }
+    
+    @keyframes pulse {
+        0% { box-shadow: 0 0 15px rgba(57, 255, 20, 0.2); }
+        100% { box-shadow: 0 0 30px rgba(57, 255, 20, 0.5); }
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ================= FIREBASE INITIALIZATION =================
 if not firebase_admin._apps:
     try:
         if "firebase" in st.secrets:
-            # ใช้ข้อมูลจาก Secrets บนระบบ Cloud
             fb_cred = dict(st.secrets["firebase"])
             cred = credentials.Certificate(fb_cred)
         else:
-            # ใช้ไฟล์โลคอลสำหรับทดสอบในเครื่องคอมตัวเอง
             cred = credentials.Certificate("firebase_key.json")
         firebase_admin.initialize_app(cred, {'databaseURL': DATABASE_URL})
     except Exception as e:
@@ -43,104 +115,85 @@ SERVERS = {
     "Premium": [f"TH PREMIUM SERVER {i:03d}" for i in range(1, 51)]
 }
 
-# กำหนดค่าตัวแปรประจำ Session ของผู้ใช้งานเว็บแต่ละคน
 if "authenticated" not in st.session_state: st.session_state.authenticated = False
 if "user_name" not in st.session_state: st.session_state.user_name = ""
 if "current_type" not in st.session_state: st.session_state.current_type = "Official"
 if "current_city" not in st.session_state: st.session_state.current_city = list(CITIES.keys())[0]
+if "browser_id" not in st.session_state: st.session_state.browser_id = str(uuid.getnode())
 
-# ฟังก์ชันดึง HWID/จำลอง ID สำหรับระบบเว็บ (เว็บบราวเซอร์จะไม่มีสิทธิ์อ่านค่าเครื่องตรงๆ จึงต้องใช้ระบบจำลอง Session ID)
-if "browser_id" not in st.session_state:
-    st.session_state.browser_id = str(uuid.getnode())
-
-# ================= HELPER FUNCTIONS =================
+# ================= FUNCTIONS =================
 def verify_key(key):
     try:
         url = f"{GOOGLE_SHEET_WEBAPP_URL}?key={urllib.parse.quote(key)}&hwid={urllib.parse.quote(st.session_state.browser_id)}"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=8) as response:
-            result = response.read().decode('utf-8').strip()
-            return result == "APPROVED"
-    except:
-        return False
+            return response.read().decode('utf-8').strip() == "APPROVED"
+    except: return False
 
 def push_shared_log(action, server_name, city):
     now_str = datetime.now().strftime("%H:%M:%S")
     log_id = str(uuid.uuid4())[:8]
     log_data = {
-        "id": log_id,
-        "user": st.session_state.user_name,
-        "action": action,
-        "city": city,
-        "server": server_name,
-        "time": now_str,
-        "timestamp": datetime.now().timestamp()
+        "id": log_id, "user": st.session_state.user_name, "action": action,
+        "city": city, "server": server_name, "time": now_str, "timestamp": datetime.now().timestamp()
     }
-    try:
-        db.reference(f'shared_action_logs/{log_id}').set(log_data)
+    try: db.reference(f'shared_action_logs/{log_id}').set(log_data)
     except: pass
 
-# ================= UI INTERFACE =================
+# ================= INTERFACE VIEW =================
 
-# 1. หน้าจอตรวจเช็ค LICENSE KEY
+# 1. หน้าต่างกรอก KEY (สไตล์ความปลอดภัยขั้นสูง)
 if not st.session_state.authenticated:
-    st.title("❖ ANTI-LEAK SECURITY SYSTEM ❖")
-    st.write("ENTER YOUR LICENSE KEY TO ACCESS THE CLAN RADAR")
-    
-    input_name = st.text_input("ชื่อตัวละครของคุณ:", value=st.session_state.user_name)
-    input_key = st.text_input("รหัสคีย์คุมระบบ:", type="password")
-    
-    if st.button("[ ACTIVATE LICENSE ]"):
-        if input_name.strip() == "":
-            st.error("กรุณากรอกชื่อตัวละครก่อนเข้าใช้งาน!")
-        else:
-            with st.spinner("กำลังยืนยันสิทธิ์จากเซิร์ฟเวอร์หลัก..."):
-                if verify_key(input_key):
-                    st.session_state.authenticated = True
-                    st.session_state.user_name = input_name.strip()
-                    st.success("ยืนยันสิทธิ์สำเร็จ!")
-                    st.rerun()
-                else:
-                    st.error("รหัสคีย์ไม่ถูกต้อง หรือถูกระงับสิทธิ์ใช้งานแล้ว!")
-
-# 2. หน้าจอหลักของโปรแกรม (เมื่อยืนยันสิทธิ์ผ่านแล้ว)
-else:
-    # ส่วนของแถบเมนูด้านซ้าย (Sidebar)
-    with st.sidebar:
-        st.markdown(f"### 👤 OPERATIVE: `{st.session_state.user_name}` 🟢")
-        st.markdown("---")
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("""
+        <div style='background-color: #0b0e14; border: 1px solid #ff4747; padding: 30px; border-radius: 8px; box-shadow: 0 0 20px rgba(255,71,71,0.15);'>
+            <h2 style='text-align: center; color: #ff4747; margin-bottom: 5px;'>❖ ANTI-LEAK SECURITY SYSTEM ❖</h2>
+            <p style='text-align: center; color: #718096; font-size: 13px; font-family: monospace;'>ENTER YOUR LICENSE KEY TO UNLOCK RADAR</p>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        input_name = st.text_input("OPERATIVE NAME (ชื่อตัวละคร):", value=st.session_state.user_name)
+        input_key = st.text_input("ACCESS LICENSE KEY (รหัสคีย์):", type="password")
+        st.markdown("<br>", unsafe_allow_html=True)
         
-        # เลือกประเภทเซิร์ฟเวอร์
+        if st.button("[ ACTIVATE LICENSE SYSTEM ]", use_container_width=True):
+            if not input_name.strip():
+                st.error("กรุณากรอกชื่อตัวละครก่อนเข้าใช้งาน!")
+            else:
+                with st.spinner("กำลังตรวจสอบคีย์ของแคลน..."):
+                    if verify_key(input_key):
+                        st.session_state.authenticated = True
+                        st.session_state.user_name = input_name.strip()
+                        st.rerun()
+                    else: st.error("รหัสคีย์ไม่ถูกต้อง หรือถูกผู้บริหารแคลนระงับสิทธิ์แล้ว!")
+
+# 2. หน้าจอกระดานเรดาร์บอส (เมื่อล็อกอินเสร็จ)
+else:
+    with st.sidebar:
+        st.markdown(f"<div style='border: 1px solid #39ff14; padding: 10px; border-radius: 4px; text-align: center;'><span style='color: #39ff14; font-weight: bold;'>👤 OPERATIVE:</span> <code style='color: #fff;'>{st.session_state.user_name}</code></div>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
         st.session_state.current_type = st.radio("NETWORK TYPE:", ["Official", "Premium"])
         st.markdown("---")
-        
-        # เลือกเมืองเป้าหมาย
         st.markdown("🎯 **SELECT TARGET CITY:**")
         for city_name, icon in CITIES.items():
-            if st.button(f"{icon} {city_name}", use_container_width=True):
+            if st.button(f"{icon}  {city_name}", use_container_width=True):
                 st.session_state.current_city = city_name
                 st.rerun()
-                
         st.markdown("---")
-        if st.button("🚪 LOGOUT / SWITCH CHAR"):
+        if st.button("🚪 LOGOUT / SWITCH OPERATIVE", use_container_width=True):
             st.session_state.authenticated = False
             st.rerun()
 
-    # พื้นที่กระดานหลัก (Main Dashboard)
-    st.title(f"📍 TARGET: {st.session_state.current_city.upper()} ({st.session_state.current_type.upper()})")
+    st.markdown(f"<h2>📍 TARGET MAP: <span style='color: #39ff14;'>{st.session_state.current_city.upper()}</span> <span style='font-size: 16px; color: #718096;'>({st.session_state.current_type.upper()})</span></h2>", unsafe_allow_html=True)
     
-    # ดึงเวลาปัจจุบันมาเปรียบเทียบ
     now = datetime.now()
-    
-    # ดึงข้อมูลตัวนับเวลาทั้งหมดจาก Firebase แบบ Real-time ทุกครั้งที่หน้าเว็บรีเฟรช
     timers_data = db.reference('boss_timers').get() or {}
-    backup_data = db.reference('backup_timers').get() or {}
     
-    # ดึงคลังข้อมูลส่วนกลางมาจัดแสดงในตู้ Live Log Side
     col_cards, col_logs = st.columns([3, 1])
     
     with col_cards:
-        # วาดการ์ดเซิร์ฟเวอร์ 4 คอลัมน์แบบ Grid เหมือนแอปเดิม
         srv_list = SERVERS[st.session_state.current_type]
         grid_cols = st.columns(4)
         
@@ -149,42 +202,53 @@ else:
             db_key = f"{st.session_state.current_type}_{st.session_state.current_city}_{server_name}"
             
             with col_target:
-                st.markdown(f"#### 🖥️ {server_name}")
-                
-                # ตรรกะคำนวณเวลานับถอยหลัง
                 if db_key in timers_data:
                     try:
                         spawn_time = datetime.strptime(timers_data[db_key], "%Y-%m-%d %H:%M:%S")
                         total_secs = (spawn_time - now).total_seconds()
                         
                         if total_secs > 0:
+                            # สภาพเวลากำลังนับถอยหลัง (ขอบแดง)
                             hours, remainder = divmod(int(total_secs), 3600)
                             mins, secs = divmod(remainder, 60)
-                            st.error(f"⏱️ {hours:02d}:{mins:02d}:{secs:02d}")
-                            
-                            # ปุ่มล็อกห้ามกดทับจนกว่าเวลาจะหมด
+                            st.markdown(f"""
+                            <div class='boss-card-running'>
+                                <div style='font-size: 11px; color: #a0aec0;'>{server_name}</div>
+                                <div style='font-size: 26px; font-weight: bold; color: #ff4747; font-family: monospace; margin: 5px 0;'>{hours:02d}:{mins:02d}:{secs:02d}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
                             st.button("SPAWN", key=f"sp_{db_key}", disabled=True, use_container_width=True)
                         else:
-                            st.success("💀 [ SPAWNED ]")
+                            # สภาพบอสเกิดแล้ว (ขอบเขียวนีออนกระพริบ)
+                            st.markdown(f"""
+                            <div class='boss-card-spawned'>
+                                <div style='font-size: 11px; color: #39ff14;'>{server_name}</div>
+                                <div style='font-size: 22px; font-weight: bold; color: #39ff14; font-family: monospace; margin: 7px 0;'>[ SPAWNED ]</div>
+                            </div>
+                            """, unsafe_allow_html=True)
                             if st.button("SPAWN", key=f"sp_act_{db_key}", use_container_width=True):
                                 next_spawn = now + timedelta(seconds=COOLDOWN_SECONDS)
                                 db.reference(f'boss_timers/{db_key}').set(next_spawn.strftime("%Y-%m-%d %H:%M:%S"))
                                 push_shared_log("SPAWN", server_name, st.session_state.current_city)
                                 st.rerun()
-                    except:
-                        st.info("--:--:--")
+                    except: pass
                 else:
-                    st.info("⏱️ --:--:--")
+                    # สภาพห้องว่างยังไม่มีการเซ็ตเวลา (ขอบมืดขีดฟ้า)
+                    st.markdown(f"""
+                    <div class='boss-card-empty'>
+                        <div style='font-size: 11px; color: #4a5568;'>{server_name}</div>
+                        <div style='font-size: 26px; font-weight: bold; color: #3182ce; font-family: monospace; margin: 5px 0;'>--:--:--</div>
+                    </div>
+                    """, unsafe_allow_html=True)
                     if st.button("SPAWN", key=f"sp_fresh_{db_key}", use_container_width=True):
                         next_spawn = now + timedelta(seconds=COOLDOWN_SECONDS)
                         db.reference(f'boss_timers/{db_key}').set(next_spawn.strftime("%Y-%m-%d %H:%M:%S"))
                         push_shared_log("SPAWN", server_name, st.session_state.current_city)
                         st.rerun()
                 
-                # ปุ่มฟังก์ชันจัดการเสริมด้านล่างของการ์ด (UNDO / RESET)
+                # โซนปุ่ม UNDO / RESET ท้ายการ์ด
                 c_undo, col_rst = st.columns(2)
                 with c_undo:
-                    # ตรวจสอบสิทธิ์การกด Undo 10 นาที
                     has_backup = db.reference(f'backup_timers/{db_key}').get()
                     if has_backup:
                         if st.button("UNDO", key=f"un_{db_key}", use_container_width=True):
@@ -192,8 +256,7 @@ else:
                             db.reference(f'backup_timers/{db_key}').delete()
                             push_shared_log("UNDO", server_name, st.session_state.current_city)
                             st.rerun()
-                    else:
-                        st.button("UNDO", key=f"un_dis_{db_key}", disabled=True, use_container_width=True)
+                    else: st.button("UNDO", key=f"un_dis_{db_key}", disabled=True, use_container_width=True)
                         
                 with col_rst:
                     if db_key in timers_data:
@@ -202,15 +265,12 @@ else:
                             db.reference(f'boss_timers/{db_key}').delete()
                             push_shared_log("RESET", server_name, st.session_state.current_city)
                             st.rerun()
-                    else:
-                        st.button("RESET", key=f"rs_dis_{db_key}", disabled=True, use_container_width=True)
-                st.markdown("---")
+                    else: st.button("RESET", key=f"rs_dis_{db_key}", disabled=True, use_container_width=True)
+                st.markdown("<br>", unsafe_allow_html=True)
 
-    # ส่วนของตู้แสดงข้อมูลประวัติสากล (Live Action Log) ด้านขวา
     with col_logs:
         st.markdown("### 📡 LIVE ACTION LOG")
         raw_logs = db.reference('shared_action_logs').get() or {}
-        
         log_box_content = ""
         if raw_logs:
             sorted_logs = sorted(raw_logs.values(), key=lambda x: x.get('timestamp', 0), reverse=True)
@@ -219,8 +279,6 @@ else:
                     action_icon = "🟢" if l['action'] == "SPAWN" else "🔴" if l['action'] == "RESET" else "⏪"
                     log_box_content += f"[{l['time']}] {action_icon} [{l['user']}]\n> {l['action']} {l['server']}\n\n"
                     
-        st.text_area("LOG_VIEW", value=log_box_content if log_box_content else "[SYSTEM] READY...", height=500, disabled=True, label_visibility="collapsed")
-        
-        # ปุ่มสำหรับบังคับรีเฟรชหน้าจออัปเดตเวลาบนเว็บด้วยมือ
-        if st.button("🔄 REFRESH RADAR", use_container_width=True):
+        st.text_area("LOG_VIEW", value=log_box_content if log_box_content else "[SYSTEM] RADAR STABLE...", height=520, disabled=True, label_visibility="collapsed")
+        if st.button("🔄 REFRESH RADAR TIMERS", use_container_width=True):
             st.rerun()
