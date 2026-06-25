@@ -3,45 +3,37 @@ from datetime import datetime, timedelta
 import firebase_admin
 from firebase_admin import credentials, db
 import uuid
-import urllib.request
-import urllib.parse
 import json
 
 # 📌 ตั้งค่าหน้าเว็บให้เป็นแบบกว้าง และซ่อน UI ขยะของ Streamlit
 st.set_page_config(page_title="❖ NYXORAA CLAN RADAR ❖", layout="wide", initial_sidebar_state="expanded")
 
 COOLDOWN_SECONDS = 3600
-GOOGLE_SHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxLuBcnupdwj1ippurn9t18kE5pnGucV4Q-CTBr9f7vLApYa_NhwncLTH6FRmJI24u0lw/exec"
 DATABASE_URL = "https://arz-boss-tracker-default-rtdb.firebaseio.com/"
 
 # ================= CUSTOM UI THEME (Nyxoraa Style) =================
 st.markdown("""
 <style>
-    /* ซ่อนเมนูขยะของ Streamlit */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* พื้นหลังและโทนสีหลัก */
     .stApp {
         background-color: #0b0f19 !important;
         font-family: 'Consolas', 'Segoe UI', monospace !important;
     }
     
-    /* สไตล์แถบ Sidebar */
     section[data-testid="stSidebar"] {
         background-color: #121826 !important;
         border-right: 1px solid #1e293b !important;
     }
     
-    /* หัวข้อและตัวหนังสือ */
     h1, h2, h3 {
         color: #e2e8f0 !important;
         text-transform: uppercase;
         letter-spacing: 1px;
     }
     
-    /* การ์ดเวลากำลังวิ่ง (สีแดง Tactical) */
     .boss-card-running {
         background: linear-gradient(145deg, #1a0f14 0%, #11141d 100%) !important;
         border-top: 3px solid #ff3b3b !important;
@@ -54,7 +46,6 @@ st.markdown("""
         margin-bottom: 15px !important;
     }
     
-    /* การ์ดเวลาบอสเกิด (สีเขียวนีออน) */
     .boss-card-spawned {
         background: linear-gradient(145deg, #0d1f16 0%, #11141d 100%) !important;
         border-top: 3px solid #00ff66 !important;
@@ -68,7 +59,6 @@ st.markdown("""
         animation: glow 1.5s infinite alternate;
     }
     
-    /* การ์ดสถานะว่างเปล่า (สีฟ้าเทา) */
     .boss-card-empty {
         background-color: #131a28 !important;
         border-top: 3px solid #3b82f6 !important;
@@ -80,7 +70,6 @@ st.markdown("""
         margin-bottom: 15px !important;
     }
     
-    /* กล่องข้อความกรอกข้อมูล */
     .stTextInput input {
         background-color: #0b0f19 !important;
         color: #00ff66 !important;
@@ -93,7 +82,6 @@ st.markdown("""
         box-shadow: 0 0 5px rgba(0,255,102,0.3) !important;
     }
     
-    /* ปุ่มกดสไตล์ Nyxoraa */
     .stButton>button {
         background-color: #1a2235 !important;
         color: #94a3b8 !important;
@@ -110,7 +98,6 @@ st.markdown("""
         box-shadow: 0 0 10px rgba(0, 255, 102, 0.2) !important;
     }
     
-    /* ตู้ข้อความประวัติ Log */
     div[data-testid="stTextArea"] textarea {
         background-color: #0b0f19 !important;
         border: 1px solid #1e293b !important;
@@ -126,14 +113,24 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ================= FIREBASE INITIALIZATION =================
+# ================= HARDCODED FIREBASE SECURITY DICTIONARY =================
+firebase_dict = {
+    "type": "service_account",
+    "project_id": "arz-boss-tracker",
+    "private_key_id": "b5c18b7ee40e5e05986ab24c745607ee70bc4393",
+    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC5t/H4iq97/8SO\nmT0Sf6P2Q7/Na9QUa4r7PKppUN+eo/qcaK0zQZ8w9SmFKg82WEiQEbIvnmtRrKEJ\ncvCthK+9RtQjmvZXY7XdXPirBD+U9fNUtN2WzjzJJXuLqhG3V4MmnP80r8fsy8Cc\nTnNXk7PhQPMKWzuQGDtrRw0pAzXMkFhjarlJrj3+lHrXvpH1FqkFvodm/LYJID61\nQ2DQX8mrRSHvgjB4kLlURDvOswpwm2rsvsuX2uYTIVte8jWSeuzzJ9UtEaCGdcNX\nLv94JRuMJVsVes1wLca+x4iDC54AeiqTzO/uL0u3hm1aFUhQ6ODV56wo7WojSQnA\nNkLVZFspAgMBAAECggEARy5D3TVWfgmxLdB40mK+lpAv7s1Ru0PewF1nmTbohnam\nApWyMI+Jsqt8bvAIZZVftmw55btruaGXFTaLHY5aBwsjGsR1f1gVp9LO8kkOD4tW\n6JPrzDWeoZ+uowCbirBNcZrBy9FFqLINUDtXRO01B/QrUsBV62wGNh9E4X+7+nt+\nTCNXLtg3faWd95uGhWNP7eJDUKzX05eZlWybUyECFuVq3hyWRqUkPHlO8+ddDL1D\nDu+qUkCqjJ1mgA1bf+nxraM5iZ6YyeUCtmw9zqr+OT2Vb/MUBQYpkc1U1USa5TTK\noRgwrSSa6B/00ZLOcPAw/GTAMWmpPNwfrqwaazC8+wKBgQD0qJMvaUGNu7Q5gt5v\nLQ5BZFwvXwGtL6pO++Q8+u/9+2hxO41dzT/94f/zCe/D20/vZn0cdPF5TD+2y/Od\nnVAKY8yTRRQ9Hl8HhnEvm4s11NQc2YHlTcQv+Goym8gKcCjcMFb/scoHtSwEHdc2\nmf4D7LlkEhG45yXzwdzBLC5zCwKBgQDCU+omgsjJlCs+l8DkVSn6ZNQJBpuzk4QP\ncL5jlJLJXowu8neww6DkHXiuNFAPIl11JxGp0TCbD0DNMEYt833W3olmBvNmwTET\n/U9oemayBC9f0hXnBw+qrfoVF+jX3YM9+Iqf8o3MKan2gIaIL3K4DT8sZuKDnd8n\nG4PtsJ5LGwKBgD9D9EOXUUdIWZNhnwlaukv4msn5JGLXZ4/jHSMTtMmVoG1fe+/c\nqoaJUXlUgXbBGIuMkh+wsdyu9e7cEJQaYN8+7WDLxS8E0ogMoOoxq67w6STIrglQ\ncHB2BxcIj9ov3go2+Zk4BxcIhSybruE2KXFKi+RaJnK1AqTf/VH6n7/AoGBAKYN\nUJsBzJM7kkxVHlW+VDWLbQgdZnTni8Qp4fZzoY6CxSTkudQJBnWGnXW2a+bSxaty\n7AwBHhiRyxzKsF1ZoGE4HY5aSCi40rgzD2TGmvRo0RZ/DYoxpXiCW50kpim3NguB\nUutkNziLLZner5a1fMC7SQ0nCU3QXDwtrekwr8KbAoGBANwycIWBbXGVaG2l/K2a\njWOrA666TRl2SUfQZ2SD74GhdVTVTJm+qdyG0my/L0NJUCnFK1E/+RH/wxAsGOaA\nCznQHFSOrErOHEZ3f+jZ7qv4AdL/hnUleuJatJTUtdhMzZ/F5z5mduiBzzRKf3Hu\nnJ48TKeCjxsI76smBmutnDLJ\n-----END PRIVATE KEY-----\n",
+    "client_email": "firebase-adminsdk-fbsvc@arz-boss-tracker.iam.gserviceaccount.com",
+    "client_id": "116216819259088173761",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40arz-boss-tracker.iam.gserviceaccount.com",
+    "universe_domain": "googleapis.com"
+}
+
 if not firebase_admin._apps:
     try:
-        if "firebase" in st.secrets:
-            fb_cred = dict(st.secrets["firebase"])
-            cred = credentials.Certificate(fb_cred)
-        else:
-            cred = credentials.Certificate("firebase_key.json")
+        cred = credentials.Certificate(firebase_dict)
         firebase_admin.initialize_app(cred, {'databaseURL': DATABASE_URL})
     except Exception as e:
         st.error(f"❌ Firebase Connection Error: {e}")
@@ -156,15 +153,6 @@ if "current_type" not in st.session_state: st.session_state.current_type = "Offi
 if "current_city" not in st.session_state: st.session_state.current_city = list(CITIES.keys())[0]
 
 # ================= FUNCTIONS =================
-def verify_key(key, username):
-    try:
-        # 📌 บนเว็บใช้ "ชื่อตัวละคร" เป็นตัวล็อก Hardware ID เพื่อหลบข้อจำกัดของเบราว์เซอร์
-        url = f"{GOOGLE_SHEET_WEBAPP_URL}?key={urllib.parse.quote(key)}&hwid={urllib.parse.quote(username)}"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=8) as response:
-            return response.read().decode('utf-8').strip() == "APPROVED"
-    except: return False
-
 def push_shared_log(action, server_name, city):
     now_str = datetime.now().strftime("%H:%M:%S")
     log_id = str(uuid.uuid4())[:8]
@@ -174,7 +162,6 @@ def push_shared_log(action, server_name, city):
     }
     try:
         db.reference(f'shared_action_logs/{log_id}').set(log_data)
-        # เคลียร์ Log เก่าเกิน 150 รายการ
         ref = db.reference('shared_action_logs')
         all_logs = ref.get()
         if all_logs and isinstance(all_logs, dict) and len(all_logs) > 150:
@@ -185,35 +172,30 @@ def push_shared_log(action, server_name, city):
 
 # ================= INTERFACE VIEW =================
 
-# 1. หน้าต่างกรอก KEY 
+# 1. หน้าต่างกรอกชื่อ (ตัดระบบคีย์ออกชั่วคราว)
 if not st.session_state.authenticated:
-    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        # รูปแบนเนอร์เท่ๆ (Nyxoraa Style)
         st.markdown("""
-        <div style='background: linear-gradient(90deg, #11141d 0%, #1a2235 100%); border-left: 4px solid #ff3b3b; padding: 30px; border-radius: 4px; text-align: center;'>
-            <h1 style='color: #ff3b3b; margin-bottom: 5px; text-shadow: 0 0 10px rgba(255,59,59,0.3);'>❖ UPLINK SECURITY ❖</h1>
-            <p style='color: #64748b; font-size: 14px; letter-spacing: 2px;'>AUTHORIZATION REQUIRED TO ACCESS RADAR</p>
+        <div style='background: linear-gradient(90deg, #11141d 0%, #1a2235 100%); border-left: 4px solid #00ff66; padding: 30px; border-radius: 4px; text-align: center;'>
+            <h1 style='color: #00ff66; margin-bottom: 5px; text-shadow: 0 0 10px rgba(0,255,102,0.3);'>❖ UPLINK SYSTEM ❖</h1>
+            <p style='color: #64748b; font-size: 14px; letter-spacing: 2px;'>ENTER OPERATIVE NAME TO ACCESS RADAR</p>
         </div>
         """, unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
-        input_name = st.text_input("OPERATIVE NAME (ชื่อตัวละคร):", value=st.session_state.user_name)
-        input_key = st.text_input("ACCESS LICENSE KEY (รหัสคีย์):", type="password")
+        input_name = st.text_input("OPERATIVE NAME (ระบุชื่อตัวละครของคุณ):", value=st.session_state.user_name)
         st.markdown("<br>", unsafe_allow_html=True)
         
         if st.button("[ INITIALIZE CONNECTION ]", use_container_width=True):
-            if not input_name.strip() or not input_key.strip():
-                st.error("กรุณากรอกข้อมูลให้ครบถ้วนก่อนเข้าใช้งาน!")
+            if not input_name.strip():
+                st.error("⚠️ กรุณากรอกชื่อตัวละครก่อนเข้าใช้งาน!")
             else:
-                with st.spinner(">> DECRYPTING PAYLOAD..."):
-                    # ส่ง Key และ Username ไปตรวจสอบ
-                    if verify_key(input_key.strip(), input_name.strip()):
-                        st.session_state.authenticated = True
-                        st.session_state.user_name = input_name.strip()
-                        st.rerun()
-                    else: st.error("ACCESS DENIED: รหัสคีย์ไม่ถูกต้อง หรือถูกระงับสิทธิ์แล้ว!")
+                with st.spinner(">> ESTABLISHING SECURE UPLINK..."):
+                    st.session_state.authenticated = True
+                    st.session_state.user_name = input_name.strip()
+                    st.rerun()
 
 # 2. หน้าจอกระดานเรดาร์บอส
 else:
